@@ -4,6 +4,8 @@ require 'nokogiri'
 require 'securerandom'
 require 'time'
 require 'yaml'
+require 'time'
+require_relative './s3'
 
 # Some itunes bs
 ITUNES_XMLNS = {
@@ -17,68 +19,90 @@ ITUNES_XMLNS = {
   'version' => '2.0'
 }
 
-
 EN_US = 'en-US'
 
 # Common attrs
 GITHUBLINK = 'https://github.com/micahlagrange/ruby-podcast-rss-generator'
-
+# Conf
 conf = YAML.load_file(ARGV[0])
 S3_RSS_URL    = conf['s3']['rss_url'] # the full path to the podcast.xml hosted in s3
 S3_IMAGES_URL = conf['s3']['images_url'] # The base directory in s3 where all images will live
 S3_MP3S_URL   = conf['s3']['episodes_url'] # The base directory in s3 where all episodes will live
 
-Channel = Struct.new(:author, :episodes, :description, :link, :title, :language, :explicit, :image_path)
-Episode = Struct.new(:title, :media_path, :description, :pubdate, :image_path, :episode_type, :episode_number, :author, :keywords) do
+Channel = Struct.new(:author, :episodes, :long_description, :short_description, :link, :title, :language, :explicit, :type, :image_path, :keywords, :owner_email, :owner_name)
+Episode = Struct.new(:title, :media_path, :description, :pubdate, :image_path, :episode_type, :episode_number, :author, :keywords, :guid, :category, :sub_category) do
   def pubdate_rfc822
-    Time.parse(pubdate).utc.rfc2822
+    pubdate.rfc2822
   end
   def publish_date_in_past?
-    Time.now.utc > Time.parse(pubdate).utc
+    Time.now > pubdate
   end
   def to_xml(xml)
+    xml.pubDate pubdate_rfc822
+    if category
+      xml.send('itunes:category', {text: category}) {
+        xml.send('itunes:category', {text: sub_category}) if sub_category
+      }
+    end
     xml.title title
     xml.description {xml.cdata description}
-    xml.send('itunes:explicit', 'no')
-    xml.pubDate pubdate_rfc822
+    xml.send('itunes:image', {href: S3_IMAGES_URL + image_path})
+    xml.send('content:encoded') { xml.cdata description }
     xml.enclosure(url: S3_MP3S_URL + media_path, type: 'audio/mpeg')
     xml.send('media:content', url: S3_MP3S_URL + media_path, type: 'audio/mpeg', isDefault: true, medium: 'audio') { xml.send('media:title', {type: 'plain'}, title) }
-    xml.send('itunes:author', author)
     xml.guid({isPermaLink: false}, guid)
     xml.send('itunes:keywords', keywords)
-    xml.send('itunes:image', {href: S3_IMAGES_URL + image_path})
     xml.send('itunes:episodeType', episode_type)
-    xml.send('content:encoded') { xml.cdata description }
     xml.send('itunes:episode', episode_number)
+    xml.send('itunes:explicit', 'no')
+    xml.send('itunes:author', author)
   end
-  
-  def guid
-    passwd = []
-    3.times do
-      passwd << SecureRandom.uuid.tr('-','')
-    end
-    passwd.join(':')
-  end
+
 end
 
-def new_episode(title:,media_path:,description:,pubdate:,image_path:,episode_type:'full',number:,author:,keywords:)
-  Episode.new(title,media_path,description,pubdate.to_s,image_path,episode_type,number,author,keywords)
+def new_episode(title:,media_path:,description:,pubdate:,image_path:,episode_type:'full',number:,author:,keywords:,category:,sub_category:,bucket:)
+
+  pubdate = Time.parse(pubdate).utc
+  $stderr.write "looking in s3 for episode #{number}:'#{title}' at path episodes/#{media_path}\n"
+  s3episode = Podcast::S3Buckets.episodes(bucket: bucket).find{|e| e.path == "episodes/#{media_path}"}
+  
+  if s3episode
+    if number != s3episode.episode_number ||  pubdate != s3episode.pubdate
+      $stderr.write "[WARNING]:: Found episode #{number}: '#{title}' in s3 but the metadata does not match. One of the following may be the issue:\n"
+      $stderr.write "#{number} == #{s3episode.episode_number.to_i} #{number == s3episode.episode_number.to_i}.\n"
+      $stderr.write "#{pubdate} == #{s3episode.pubdate} #{pubdate == s3episode.pubdate}\n"
+      $stderr.write "It is possible that the defined properties just need to pushed out to s3 again, or that someone modified the s3 object manually.\n"
+    end
+    if s3episode.guid.nil?
+      $stderr.write("Guid is nil for episode #{number}. guid must be present for the xml in the rss feed.")
+      abort
+    end
+    $stderr.write "Found episode #{s3episode}\n"
+    guid = s3episode.guid
+    pubdate = s3episode.pubdate
+  end
+  Episode.new(title,media_path,description,pubdate,image_path,episode_type,number,author,keywords,guid,category,sub_category)
 end
 
 def new_channel(conf)
-  defaults = {'language' => EN_US, 'explicit' => 'no'}
+  defaults = {'language' => EN_US, 'explicit' => 'no', 'type' => 'episodic'}
   defaults.each do |k,v|
     defaults[k] = conf['channel'][k] if conf['channel'].key?(k)
   end
   Channel.new(
     conf['channel']['author'],
     conf['channel']['episodes'],
-    conf['channel']['description'],
+    conf['channel']['long_description'],
+    conf['channel']['short_description'],
     conf['channel']['link'],
     conf['channel']['title'],
     defaults['language'],
     defaults['explicit'],
+    defaults['type'],
     conf['channel']['image_path'],
+    conf['channel']['keywords'],
+    conf['channel']['owner_email'],
+    conf['channel']['owner_name']
   )
 end
 
@@ -96,30 +120,50 @@ channel = new_channel(conf)
 channel.episodes.each do |e|
   e['author'] = channel.author unless e.has_key?('author')
   e['image_path'] = channel.image_path
+  e['category'] = nil unless e.key?('category')
+  e['sub_category'] = nil unless e.key?('sub_category')
+  e['bucket'] = conf['s3']['bucket']
 end
+
+# Create new episodes from channel episodes yaml
 episodes = channel.episodes.map{|e| new_episode(symbolize_keys(e))}
 
 feed_xml = Nokogiri::XML::Builder.new(encoding: 'UTF-8') do |xml|
   xml.rss(ITUNES_XMLNS) {
     xml.channel {
       xml.title channel.title
-      xml.link channel.link
-      xml.lastBuildDate episodes.select(&:publish_date_in_past?).last.pubdate_rfc822 unless episodes.select(&:publish_date_in_past?).empty?
-      xml.description channel.description
-      xml.send('itunes:author', channel.author)
-      xml.send('itunes:subtitle', channel.description)
-      xml.send('itunes:summary', channel.description)
       xml.generator GITHUBLINK
-      xml.language channel.language
-      xml.send('atom:link', {href: S3_RSS_URL, rel: 'self', type: 'application/rss+xml'})
-      xml.send('itunes:explicit', channel.explicit)
-      episodes.each do |ep|
-        xml.item {
-          ep.to_xml(xml)
+      xml.send('itunes:type', channel.type)
+      xml.lastBuildDate episodes.select(&:publish_date_in_past?).last.pubdate_rfc822 unless episodes.select(&:publish_date_in_past?).empty?
+      xml.link channel.link
+
+      if channel.owner_email && channel.owner_name
+        xml.send('itunes:owner') {
+          xml.send('itunes:name', channel.owner_name)
+          xml.send('itunes:email', channel.owner_email)
         }
+      end
+
+      xml.description channel.long_description
+      xml.send('itunes:subtitle', channel.short_description)
+      xml.send('itunes:summary', channel.long_description)
+
+      xml.send('itunes:explicit', channel.explicit)
+      xml.send('itunes:keywords', channel.keywords) if channel.keywords
+      xml.send('itunes:image', {href: S3_IMAGES_URL + channel.image_path})
+      xml.send('itunes:author', channel.author)
+      xml.send('atom:link', {href: S3_RSS_URL, rel: 'self', type: 'application/rss+xml'})
+      xml.language channel.language
+
+      episodes.each do |ep|
+        if ep.publish_date_in_past?
+          xml.item {
+            ep.to_xml(xml)
+          }
+        end
       end
     }
   }
 end.to_xml
 
-$stdout.write feed_xml
+File.write('podcast.xml', feed_xml)
