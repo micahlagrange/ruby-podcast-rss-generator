@@ -45,7 +45,35 @@ module Podcast
       passwd.join(':')
     end
 
-    def self.episodes(path_prefix: 'episodes',bucket:)
+    def self.upload_podcast_xml(bucket:, xml_file:, name: 'podcast.xml')
+      tags = "lastBuildDate=#{Time.now.iso8601}"
+
+      resp = client.put_object(
+        body: File.read(xml_file),
+        bucket: bucket,
+        key: name,
+        tagging: tags,
+        content_type: 'application/rss+xml'
+      )
+      resp.successful?
+    end
+
+    def self.upload_episode(bucket:, audio_file:, guid:, pubdate:, episode_number:, path_prefix: 'episodes')
+
+      tags = "guid=#{guid}&release_date=#{pubdate.to_s}&episode_number=#{episode_number}"
+
+      resp = File.open(audio_file, 'rb') do |file|
+        resp = client.put_object(
+          body: file, 
+          bucket: bucket, 
+          key: "#{path_prefix}/#{File.basename(audio_file)}",
+          tagging: tags
+        )
+      end
+      resp.successful?
+    end
+
+    def self.episodes(path_prefix: 'episodes', bucket:)
       ep_list = []
       episodes = client.list_objects(bucket: bucket, prefix: path_prefix).contents
 
