@@ -1,0 +1,61 @@
+{
+    "type": "object",
+    "required": ["channel", "s3", "media_base_dir"],
+    "properties": {
+        "media_base_dir": {
+            "type": "string",
+            "pattern": "^./episodes/$"
+        },
+        "s3": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [],
+            "properties": {
+                "bucket": {"type": "string"},
+                "images_url": {"type": "url"},
+                "episodes_url": {"type": "url"}
+            }
+        },
+        "channel": {
+            "type": "object",
+            "required": ["episodes", "title", "author", "image_path", "bucket", "category", "sub_category", "link", "short_description", "long_description", "type", "language", "owner_email", "owner_name"],
+            "properties": {
+                "title": {"type": "string"},
+                "author": {"type": "string"},
+                "image_path": {"type": "string"},
+                "bucket": {"type": "string"},
+                "category": {"type": "string"},
+                "sub_category": {"type": "string"},
+                "link": {"type": "url"},
+                "short_description": {"type": "string"},
+                "long_description": {"type": "string"},
+                "type": {"type": "string"},
+                "language": {"type": "string", "pattern": "[a-z]{2}-[A-Z]{2}"},
+                "owner_email": {"type": "email"},
+                "owner_name": {"type": "string"},
+                "episodes": {
+                    "type": "array",
+                    "items": { "$ref": "#/$defs/episode" }
+                },
+                "explicit": {"type": "boolean"}
+            }
+        }
+    },
+    "$defs": {
+        "episode": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["title", "media_path", "description", "pubdate", "number", "keywords", "duration"],
+            "properties": {
+                "title": {"type": "string"},
+                "media_path": {"type": "string", "pattern": "\\.mp3$"},
+                "description": {"type": "string"},
+                "pubdate": {"type": "string", "pattern": "\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}"},
+                "number": {"type": "integer"},
+                "keywords": {"type": "string", "pattern": "^([a-zA-Z0-9]+(, )?)*[a-zA-Z0-9]*[^,]$"},
+                "duration": {"type": "integer"},
+                "explicit": {"type": "boolean"}
+            }
+        }
+    }
+}
