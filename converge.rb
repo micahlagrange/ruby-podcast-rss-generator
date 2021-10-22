@@ -63,3 +63,6 @@ warn "Wrote episode to #{Dir.pwd}/podcast.xml"
 $stderr.write("Writing podcast xml to amazon\n")
 Podcast::S3Buckets.upload_podcast_xml(bucket: conf["s3"]["bucket"], xml_file: "podcast.xml", name: "podcast.xml")
 Podcast::S3Buckets.upload_podcast_xml(bucket: conf["s3"]["bucket"], xml_file: "podcast.xml", name: "feed")
+
+warn "Use this command to clear cache if you have a cloudfront distrubution:"
+warn "aws cloudfront create-invalidation --distribution-id #{conf["cloudfront"]["distribution_id"]} --paths '/*'" if conf.dig("cloudfront", "distribution_id")
