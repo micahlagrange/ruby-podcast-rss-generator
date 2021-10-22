@@ -3,6 +3,8 @@
 *.yml
 /episodes/*
 /images/*
+/episodes
+/images
 podcast.xml
 .vscode
 
