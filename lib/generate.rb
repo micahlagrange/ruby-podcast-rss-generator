@@ -64,7 +64,7 @@ module Podcast
             xml.send("itunes:category", { text: category }) do
               xml.send("itunes:category", { text: sub_category })
             end
-            episodes.reverse.each do |ep|
+            episodes.each do |ep|
               xml.item { ep.to_xml(xml) } if ep.publish_date_in_past?
             end
           end
