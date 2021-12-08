@@ -19,6 +19,7 @@ abort("invalid yaml or missing file #{cfile}") if conf.nil?
 
 require "json-schema"
 
+# Abort if the same number, OR same title, OR same pubdate are on more than 1 file
 %w[number title pubdate].each do |uid|
   abort("You cannot use the same '#{uid}' on more than 1 episode! Don't change an oldie, change the new one") unless conf["channel"]["episodes"].map { |e| e[uid] }.uniq.length == conf["channel"]["episodes"].map { |e| e[uid] }.length
 end
@@ -30,8 +31,8 @@ conf["channel"]["episodes"].each_with_index do |e, idx|
   base_dir = conf["media_base_dir"] ? conf["media_base_dir"] : "./episodes/"
   bucket = conf["s3"]["bucket"]
 
-  s3episode = Podcast::S3Buckets.episodes(bucket: bucket).find { |se| se.path == "#{base_dir}/#{e["media_path"]}" }
-
+  all_s3episodes = Podcast::S3Buckets.episodes(bucket: bucket)
+  s3episode = all_s3episodes.find { |se| se.episode_number == e["number"]  }
   guid = "e#{e["number"]}_#{e["pubdate"].tr(":", "-")}"
 
   # add file length in bytes
@@ -51,7 +52,7 @@ conf["channel"]["episodes"].each_with_index do |e, idx|
       episode_number: e["number"],
       mime_type: ::Podcast.mimetypes[File.extname(e["media_path"])],
     )
-    p resp
+    puts resp
   end
 end
 

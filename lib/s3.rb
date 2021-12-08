@@ -20,7 +20,7 @@ module Podcast
   module S3Buckets
     Episode = Struct.new(:path, :guid, :release_date, :episode_number) do
       def valid?
-        [path, guid, release_date].all? { |i| !i.nil? }
+        [episode_number, guid, release_date].all? { |i| !i.nil? }
       end
 
       def pubdate
@@ -34,7 +34,7 @@ module Podcast
 
     def self.tag_name(tags, key)
       found = tags.find { |t| t.key == key }
-      return found.value if found
+      found.value
     end
 
     def self.upload_podcast_xml(bucket:, xml_file:, name: "podcast.xml")
