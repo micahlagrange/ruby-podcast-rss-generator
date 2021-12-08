@@ -65,5 +65,8 @@ $stderr.write("Writing podcast xml to amazon\n")
 Podcast::S3Buckets.upload_podcast_xml(bucket: conf["s3"]["bucket"], xml_file: "podcast.xml", name: "podcast.xml")
 Podcast::S3Buckets.upload_podcast_xml(bucket: conf["s3"]["bucket"], xml_file: "podcast.xml", name: "feed")
 
-warn "Use this command to clear cache if you have a cloudfront distrubution:"
-warn "aws cloudfront create-invalidation --distribution-id #{conf["cloudfront"]["distribution_id"]} --paths '/*'" if conf.dig("cloudfront", "distribution_id")
+cache_clear_string = "aws cloudfront create-invalidation --distribution-id #{conf["cloudfront"]["distribution_id"]} --paths /feed /podcast.xml" if conf.dig("cloudfront", "distribution_id")
+warn cache_clear_string
+resp = `#{cache_clear_string}`
+warn JSON.generate(JSON.parse(resp))
+warn "\nCache cleared. Use the above aws cli command again if you want to clear cache if you have a cloudfront distrubution."
