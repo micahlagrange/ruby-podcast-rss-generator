@@ -34,7 +34,7 @@ module Podcast
 
     def self.tag_name(tags, key)
       found = tags.find { |t| t.key == key }
-      found.value
+      found.value unless found.nil?
     end
 
     def self.upload_podcast_xml(bucket:, xml_file:, name: "podcast.xml")
